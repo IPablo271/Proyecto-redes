@@ -1,4 +1,5 @@
 const { client, xml } = require("@xmpp/client");
+const readline = require("readline");
 const debug = require("@xmpp/debug");
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
@@ -19,7 +20,6 @@ class ClienteXMPP {
       username: this.username,
       password: this.password,
     });
-
 
     this.xmpp.on("error", (err) => {
       console.error(err);
@@ -45,19 +45,65 @@ class ClienteXMPP {
 
     await this.xmpp.send(message);
   }
+
+  // Add a method to disconnect from XMPP
+  async desconectar() {
+    if (this.xmpp) {
+      await this.xmpp.stop();
+      this.xmpp = null;
+      console.log("Desconectado del servidor XMPP.");
+    }
+  }
 }
 
-// Ejemplo de uso de la clase ClienteXMPP para enviar un mensaje
-async function ejemploEnviarMensaje() {
-  const cliente = new ClienteXMPP("gon20362", "1234");
-  await cliente.conectar();
+// Function to read user input from the command line
+function leerEntrada(prompt) {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
 
-  const destinatario = "andres20332@alumchat.xyz"; // Reemplaza "otroUsuario" con el nombre de usuario del destinatario
-  const mensaje = "Gay si se puede con libreria"; // Mensaje que deseas enviar
-  await cliente.enviarMensaje(destinatario, mensaje);
-  console.log("Mensaje enviado correctamente.");
+  return new Promise((resolve) => {
+    rl.question(prompt, (answer) => {
+      rl.close();
+      resolve(answer);
+    });
+  });
 }
 
-ejemploEnviarMensaje().catch((error) => {
-  console.error("Error al enviar el mensaje:", error);
+// Main menu function
+async function menu() {
+  console.log("Bienvenido al cliente XMPP!");
+  console.log("1. Enviar mensaje");
+  console.log("2. Salir");
+
+  const opcion = await leerEntrada("Seleccione una opción (1 o 2): ");
+
+  switch (opcion) {
+    case "1":
+      const cliente = new ClienteXMPP("gon20362", "1234");
+      await cliente.conectar();
+
+      const destinatario = await leerEntrada("Ingrese el nombre de usuario del destinatario: ");
+      const mensaje = await leerEntrada("Ingrese el mensaje: ");
+
+      await cliente.enviarMensaje(destinatario, mensaje);
+      console.log("Mensaje enviado correctamente.");
+      await cliente.desconectar();
+      break;
+    case "2":
+      process.exit(0); // Exit the application with success code
+      break;
+    default:
+      console.log("Opción inválida. Intente nuevamente.");
+      break;
+  }
+
+  // After handling the chosen option, display the menu again
+  await menu();
+}
+
+// Call the menu function to start the application
+menu().catch((error) => {
+  console.error("Error:", error);
 });
