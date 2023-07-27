@@ -9,6 +9,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@xmpp/client": "^0.13.1",
+    "@xmpp/debug": "^0.13.0",
     "net": "^1.0.2",
     "node-xmpp": "^1.1.0",
     "node-xmpp-client": "^3.2.0",

@@ -1,61 +1,63 @@
-const net = require('net');
+const { client, xml } = require("@xmpp/client");
+const debug = require("@xmpp/debug");
 
-const serverHost = 'alumchat.xyz';
-const serverPort = 5222;
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
-let client; // Variable para mantener la conexión TCP
-
-function inicioSesion(jid, password) {
-  // Conexión TCP
-  client = net.connect({ host: serverHost, port: serverPort }, () => {
-    console.log('Conexión establecida con el servidor.');
-
-    // Envío del inicio de sesión
-    const xmlAuth = `<auth xmlns="urn:ietf:params:xml:ns:xmpp-sasl" mechanism="PLAIN">${Buffer.from(`${jid}\x00${jid}\x00${password}`).toString('base64')}</auth>`;
-    client.write(xmlAuth);
-
-    // Envío del inicio de la secuencia XML
-    const xmlStream = `<?xml version="1.0" encoding="UTF-8"?><stream:stream xmlns="jabber:client" xmlns:stream="http://etherx.jabber.org/streams" to="${serverHost}" version="1.0">`;
-    client.write(xmlStream);
-  });
-
-  // Evento que se dispara cuando se recibe data del servidor.
-  client.on('data', (data) => {
-    console.log('Datos recibidos del servidor:', data.toString());
-
-    // Aquí puedes analizar las respuestas del servidor XMPP y tomar acciones en consecuencia.
-
-    // Cerrar la conexión después de recibir una respuesta (opcional).
-    // client.end();
-  });
-
-  // Evento que se dispara cuando hay un error en la conexión.
-  client.on('error', (error) => {
-    console.error('Error en la conexión:', error);
-    // Aquí podrías agregar lógica para manejar el error adecuadamente.
-  });
-}
-
-function enviarMensaje(destinatarioJID, mensaje) {
-  // Comprobar si la conexión TCP ya está establecida
-  if (!client || !client.writable) {
-    console.error('Error: No se ha establecido una conexión con el servidor.');
-    return;
+class ClienteXMPP {
+  constructor(username, password, service = "xmpp://alumchat.xyz:5222", domain = "alumchat.xyz") {
+    this.username = username;
+    this.password = password;
+    this.service = service;
+    this.domain = domain;
+    this.xmpp = null;
   }
 
-  // Construir el mensaje XMPP
-  const xmlMessage = `<message from="${jid}" to="${destinatarioJID}" type="chat"><body>${mensaje}</body></message>`;
-  client.write(xmlMessage);
+  async conectar() {
+    this.xmpp = client({
+      service: this.service,
+      domain: this.domain,
+      username: this.username,
+      password: this.password,
+    });
+
+
+    this.xmpp.on("error", (err) => {
+      console.error(err);
+    });
+
+    this.xmpp.on("online", async () => {
+      await this.xmpp.send(xml("presence"));
+    });
+
+    await this.xmpp.start().catch(console.error);
+  }
+
+  async enviarMensaje(destinatario, mensaje) {
+    if (!this.xmpp) {
+      throw new Error("El cliente XMPP no está conectado. Primero llama al método 'conectar()'.");
+    }
+
+    const message = xml(
+      "message",
+      { type: "chat", to: destinatario },
+      xml("body", {}, mensaje)
+    );
+
+    await this.xmpp.send(message);
+  }
 }
 
-// Ejemplo de inicio de sesión con una cuenta JID y contraseña.
-const jid = 'gon20362@alumchat.xyz';
-const password = '1234';
+// Ejemplo de uso de la clase ClienteXMPP para enviar un mensaje
+async function ejemploEnviarMensaje() {
+  const cliente = new ClienteXMPP("gon20362", "1234");
+  await cliente.conectar();
 
-// Iniciar sesión y enviar un mensaje de prueba
-inicioSesion(jid, password);
+  const destinatario = "andres20332@alumchat.xyz"; // Reemplaza "otroUsuario" con el nombre de usuario del destinatario
+  const mensaje = "Gay si se puede con libreria"; // Mensaje que deseas enviar
+  await cliente.enviarMensaje(destinatario, mensaje);
+  console.log("Mensaje enviado correctamente.");
+}
 
-// Ejemplo de enviar un mensaje a otro usuario
-const destinatarioJID = 'her20053@alumchat.xyz';
-const mensaje = '¡Hola! Este es un mensaje de prueba.';
-enviarMensaje(destinatarioJID, mensaje);
+ejemploEnviarMensaje().catch((error) => {
+  console.error("Error al enviar el mensaje:", error);
+});
