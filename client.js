@@ -45,6 +45,23 @@ class ClienteXMPP {
 
     await this.xmpp.send(message);
   }
+  async agregarContacto(contacto) {
+    if (!this.xmpp) {
+      throw new Error("El cliente XMPP no está conectado. Primero llama al método 'conectar()'.");
+    }
+
+    const iq = xml(
+      "iq",
+      { type: "set" },
+      xml(
+        "query",
+        { xmlns: "jabber:iq:roster" },
+        xml("item", { jid: `${contacto}@${this.domain}`, name: contacto })
+      )
+    );
+
+    await this.xmpp.send(iq);
+  }
 
   // Add a method to disconnect from XMPP
   async desconectar() {
@@ -74,33 +91,69 @@ function leerEntrada(prompt) {
 // Main menu function
 async function menu() {
   console.log("Bienvenido al cliente XMPP!");
-  console.log("1. Enviar mensaje");
-  console.log("2. Salir");
+  console.log("1. Iniciar sesión");
+  console.log("2. Crear cuenta");
+  console.log("3. Salir");
 
-  const opcion = await leerEntrada("Seleccione una opción (1 o 2): ");
+  const opcion = await leerEntrada("Seleccione una opción (1, 2 o 3): ");
 
   switch (opcion) {
     case "1":
-      const cliente = new ClienteXMPP("gon20362", "1234");
+      const username = await leerEntrada("Ingrese su nombre de usuario: ");
+      const password = await leerEntrada("Ingrese su contraseña: ");
+
+      const cliente = new ClienteXMPP(username, password);
       await cliente.conectar();
 
-      const destinatario = await leerEntrada("Ingrese el nombre de usuario del destinatario: ");
-      const mensaje = await leerEntrada("Ingrese el mensaje: ");
-
-      await cliente.enviarMensaje(destinatario, mensaje);
-      console.log("Mensaje enviado correctamente.");
-      await cliente.desconectar();
+      console.log("¡Inicio de sesión exitoso!");
+      await menuCliente(cliente);
       break;
     case "2":
-      process.exit(0); // Exit the application with success code
+      console.log("Funcionalidad de crear cuenta no implementada en este ejemplo.");
+      await menu(); // Regresar al menú principal
+      break;
+    case "3":
+      process.exit(0); // Salir de la aplicación con éxito
       break;
     default:
       console.log("Opción inválida. Intente nuevamente.");
+      await menu();
       break;
   }
+}
 
-  // After handling the chosen option, display the menu again
-  await menu();
+// Menu function after successful login
+async function menuCliente(cliente) {
+  console.log("1. Enviar mensaje");
+  console.log("2. Cerrar sesión");
+  console.log("3. Agregar contacto");
+  console.log("4. Salir");
+
+  const opcion = await leerEntrada("Seleccione una opción (1, 2 o 3): ");
+
+  switch (opcion) {
+    case "1":
+      const destinatario = await leerEntrada("Ingrese el nombre de usuario del destinatario: ");
+      const mensaje = await leerEntrada("Ingrese el mensaje: ");
+      await cliente.enviarMensaje(destinatario, mensaje);
+      console.log("Mensaje enviado correctamente.");
+      await menuCliente(cliente);
+      break;
+    case "2":
+      await cliente.desconectar();
+      console.log("¡Sesión cerrada correctamente!");
+      await menu();
+      break;
+    case "3":
+      
+    case "4":
+      process.exit(0); // Salir de la aplicación con éxito
+      break;
+    default:
+      console.log("Opción inválida. Intente nuevamente.");
+      await menuCliente(cliente);
+      break;
+  }
 }
 
 // Call the menu function to start the application
