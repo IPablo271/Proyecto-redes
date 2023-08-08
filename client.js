@@ -46,38 +46,50 @@ class ClienteXMPP {
 
     await this.xmpp.send(message);
   }
-  
   async obtenerContactos() {
     if (!this.xmpp) {
-      throw new Error(
-        "El cliente XMPP no está conectado. Primero llama al método 'conectar()'."
-      );
+      throw new Error("El cliente XMPP no está conectado. Primero llama al método 'conectar()'.");
     }
-
-    const iq = xml("iq", { type: "get" }, xml("query", { xmlns: "jabber:iq:roster" }));
-    const response = await this.xmpp.send(iq);
-
-    if (response.is("iq") && response.attrs.type === "result") {
-      const query = response.getChild("query");
-      if (query) {
-        const items = query.getChildren("item");
-        const contactos = items.map((item) => {
-          return {
-            jid: item.attrs.jid,
-            name: item.attrs.name,
-          };
+  
+    const iq = xml(
+      "iq",
+      { type: "get", id: "roster" },
+      xml("query", { xmlns: "jabber:iq:roster" })
+    );
+  
+    const contacts = {};
+  
+    this.xmpp.on("stanza", (stanza) => {
+      if (stanza.is("iq") && stanza.attrs.id === "roster") {
+        stanza.getChildren("query")[0].getChildren("item").forEach((item) => {
+          const jid = item.attrs.jid;
+          const name = item.attrs.name || jid.split("@")[0];
+          contacts[jid] = { name, presence: "offline" };
         });
-
-        return contactos;
-      } else {
-        console.log("No se encontró la lista de contactos en la respuesta del servidor.");
-        return [];
+      } else if (stanza.is("presence")) {
+        const from = stanza.attrs.from;
+        if (from in contacts) {
+          contacts[from].presence = stanza.attrs.type || "online";
+        }
       }
-    } else {
-      console.log("No se pudo obtener la lista de contactos. Respuesta inválida del servidor.");
-      return [];
-    }
+    });
+  
+    await this.xmpp.send(iq);
+  
+    return new Promise((resolve) => {
+      this.xmpp.on("stanza", (stanza) => {
+        if (stanza.is("iq") && stanza.attrs.id === "roster") {
+          resolve(Object.values(contacts));
+        }
+      });
+    });
   }
+  
+  
+  
+  
+  
+
 
   async agregarContacto(contacto) {
     if (!this.xmpp) {
@@ -183,13 +195,10 @@ async function menuCliente(cliente) {
       
     case "4":
       const contactos = await cliente.obtenerContactos();
-      console.log("Lista de contactos:");
-      contactos.forEach((contacto) => {
-        console.log(`- ${contacto.name} (${contacto.jid})`);
-      });
+      console.log("Tus contactos son:");
+      contactos.forEach((contacto) => console.log(`${contacto.name}: ${contacto.presence}`));
       await menuCliente(cliente);
-      break
-          
+      break;       
     case "5":
       process.exit(0); // Salir de la aplicación con éxito
       break;
