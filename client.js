@@ -28,6 +28,7 @@ class ClienteXMPP {
     this.xmpp.on("online", async () => {
       await this.xmpp.send(xml("presence"));
     });
+    
 
     await this.xmpp.start().catch(console.error);
   }
@@ -45,6 +46,39 @@ class ClienteXMPP {
 
     await this.xmpp.send(message);
   }
+  
+  async obtenerContactos() {
+    if (!this.xmpp) {
+      throw new Error(
+        "El cliente XMPP no está conectado. Primero llama al método 'conectar()'."
+      );
+    }
+
+    const iq = xml("iq", { type: "get" }, xml("query", { xmlns: "jabber:iq:roster" }));
+    const response = await this.xmpp.send(iq);
+
+    if (response.is("iq") && response.attrs.type === "result") {
+      const query = response.getChild("query");
+      if (query) {
+        const items = query.getChildren("item");
+        const contactos = items.map((item) => {
+          return {
+            jid: item.attrs.jid,
+            name: item.attrs.name,
+          };
+        });
+
+        return contactos;
+      } else {
+        console.log("No se encontró la lista de contactos en la respuesta del servidor.");
+        return [];
+      }
+    } else {
+      console.log("No se pudo obtener la lista de contactos. Respuesta inválida del servidor.");
+      return [];
+    }
+  }
+
   async agregarContacto(contacto) {
     if (!this.xmpp) {
       throw new Error("El cliente XMPP no está conectado. Primero llama al método 'conectar()'.");
@@ -127,7 +161,8 @@ async function menuCliente(cliente) {
   console.log("1. Enviar mensaje");
   console.log("2. Cerrar sesión");
   console.log("3. Agregar contacto");
-  console.log("4. Salir");
+  console.log("4. Obtener contactos");
+  console.log("5. Salir");
 
   const opcion = await leerEntrada("Seleccione una opción (1, 2 o 3): ");
 
@@ -147,6 +182,15 @@ async function menuCliente(cliente) {
     case "3":
       
     case "4":
+      const contactos = await cliente.obtenerContactos();
+      console.log("Lista de contactos:");
+      contactos.forEach((contacto) => {
+        console.log(`- ${contacto.name} (${contacto.jid})`);
+      });
+      await menuCliente(cliente);
+      break
+          
+    case "5":
       process.exit(0); // Salir de la aplicación con éxito
       break;
     default:
