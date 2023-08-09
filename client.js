@@ -1,8 +1,38 @@
 const { client, xml } = require("@xmpp/client");
 const readline = require("readline");
 const debug = require("@xmpp/debug");
+const net = require('net');
+const cliente = new net.Socket();
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
+async function register(username, password) {
+  cliente.connect(5222, 'alumchat.xyz', function() {
+    cliente.write("<stream:stream to='alumchat.xyz' xmlns='jabber:client' xmlns:stream='http://etherx.jabber.org/streams' version='1.0'>");
+  });
+
+  cliente.on('data', function(data) {
+    if (data.toString().includes('<stream:features>')) {
+      const xmlRegister = `
+        <iq type="set" id="reg_1" mechanism='PLAIN'>
+          <query xmlns="jabber:iq:register">
+            <username>${username}</username>
+            <password>${password}</password>
+          </query>
+        </iq>
+      `;
+      cliente.write(xmlRegister);
+    } else if (data.toString().includes('<iq type="result"')) {
+      console.log('Registro exitoso');
+    } else if (data.toString().includes('<iq type="error"')) {
+      console.log('Error al registrar');
+    }
+  });
+
+  cliente.on('close', function() {
+    console.log('Conexión cerrada');
+  });
+}
 
 class ClienteXMPP {
   constructor(username, password, service = "xmpp://alumchat.xyz:5222", domain = "alumchat.xyz") {
@@ -12,6 +42,37 @@ class ClienteXMPP {
     this.domain = domain;
     this.xmpp = null;
   }
+  async deleteAccount() {
+    return new Promise((resolve, reject) => {
+      if (!this.xmpp) {
+        reject(new Error("Error in connection, please try again."));
+      }
+  
+      const deleteStanza = xml(
+        'iq',
+        { type: 'set', id: 'delete' },
+        xml('query', { xmlns: 'jabber:iq:register' },
+          xml('remove')
+        )
+      );
+  
+      this.xmpp.send(deleteStanza).then(async () => {
+        await this.xmpp.stop();
+        this.xmpp = null;
+        this.username = null;
+        this.password = null;
+        resolve();
+      }).catch((err) => {
+        reject(new Error('Error al eliminar la cuenta.'));
+      });
+  
+      this.xmpp.on('error', (err) => {
+        // Handle any errors that might occur
+      });
+    });
+  }
+
+ 
 
   async conectar() {
     this.xmpp = client({
@@ -149,16 +210,25 @@ async function menu() {
       const password = await leerEntrada("Ingrese su contraseña: ");
 
       const cliente = new ClienteXMPP(username, password);
-      await cliente.conectar();
 
+      
+
+      await cliente.conectar();
       console.log("¡Inicio de sesión exitoso!");
       await menuCliente(cliente);
       break;
     case "2":
-      console.log("Funcionalidad de crear cuenta no implementada en este ejemplo.");
+      const username2 = await leerEntrada("Ingrese su nuevo nombre de usuario: ");
+      const password2 = await leerEntrada("Ingrese su nueva contraseña: ");
+      await register(username2, password2);
       await menu(); // Regresar al menú principal
       break;
     case "3":
+      const username3 = await leerEntrada("Ingrese su nombre de usuario: ");
+      const password3 = await leerEntrada("Ingrese su contraseña: ");
+      await deleteAccount(username3, password3);
+      await menu(); // Regresar al menú principal
+    case "4":
       process.exit(0); // Salir de la aplicación con éxito
       break;
     default:
@@ -174,7 +244,8 @@ async function menuCliente(cliente) {
   console.log("2. Cerrar sesión");
   console.log("3. Agregar contacto");
   console.log("4. Obtener contactos");
-  console.log("5. Salir");
+  console.log("5. Eliminar cuenta");
+  console.log("6. Salir");
 
   const opcion = await leerEntrada("Seleccione una opción (1, 2 o 3): ");
 
@@ -198,8 +269,12 @@ async function menuCliente(cliente) {
       console.log("Tus contactos son:");
       contactos.forEach((contacto) => console.log(`${contacto.name}: ${contacto.presence}`));
       await menuCliente(cliente);
-      break;       
+      break;
     case "5":
+      await cliente.deleteAccount();
+      await menu(); // Salir de la aplicación después de eliminar la cuenta
+      break;    
+    case "6":
       process.exit(0); // Salir de la aplicación con éxito
       break;
     default:
