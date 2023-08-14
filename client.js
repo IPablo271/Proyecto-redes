@@ -11,7 +11,7 @@ async function register(username, password) {
     cliente.write("<stream:stream to='alumchat.xyz' xmlns='jabber:client' xmlns:stream='http://etherx.jabber.org/streams' version='1.0'>");
   });
 
-  cliente.on('data', function(data) {
+  cliente.on('data', async function(data) {
     if (data.toString().includes('<stream:features>')) {
       const xmlRegister = `
         <iq type="set" id="reg_1" mechanism='PLAIN'>
@@ -24,13 +24,12 @@ async function register(username, password) {
       cliente.write(xmlRegister);
     } else if (data.toString().includes('<iq type="result"')) {
       console.log('Registro exitoso');
+      await menu();
     } else if (data.toString().includes('<iq type="error"')) {
-      console.log('Error al registrar');
+      console.log("No se pudo registrar el usuario");
+      await menu();
+      cliente.end(); // Cerrar la conexión en caso de error
     }
-  });
-
-  cliente.on('close', function() {
-    console.log('Conexión cerrada');
   });
 }
 
@@ -81,19 +80,29 @@ class ClienteXMPP {
       username: this.username,
       password: this.password,
     });
-
+  
     this.xmpp.on("error", (err) => {
-      console.error(err);
+      if (err.condition !== 'not-authorized') { // Evita imprimir el error 'not-authorized'
+        console.error("Error en la conexión:", err);
+      }
     });
-
+  
     this.xmpp.on("online", async () => {
+      console.log("Conexión exitosa.");
       await this.xmpp.send(xml("presence"));
+      // Realiza otras acciones después de establecer la conexión.
     });
-    
-
-    await this.xmpp.start().catch(console.error);
+  
+    await this.xmpp.start().catch((err) => {
+      if (err.condition !== 'not-authorized') { // Evita imprimir el error 'not-authorized'
+        console.error(err);
+      }
+    });
   }
-
+  isConnected() {
+    return this.xmpp !== null && this.xmpp.status === "online";
+  }
+  
   async enviarMensaje(destinatario, mensaje) {
     if (!this.xmpp) {
       throw new Error("El cliente XMPP no está conectado. Primero llama al método 'conectar()'.");
@@ -210,19 +219,27 @@ async function menu() {
       const password = await leerEntrada("Ingrese su contraseña: ");
 
       const cliente = new ClienteXMPP(username, password);
+      try {
+        await cliente.conectar();
+        if(cliente.isConnected()){
+          await menuCliente(cliente);
+        }else{
+          console.error("Error al iniciar sesión. Verifique sus credenciales.");
+          await menu();
+        }
 
-      
-
-      await cliente.conectar();
-      console.log("¡Inicio de sesión exitoso!");
-      await menuCliente(cliente);
+      }catch (error) {
+        console.error(error);
+        await menu();
+      }
       break;
     case "2":
-      const username2 = await leerEntrada("Ingrese su nuevo nombre de usuario: ");
-      const password2 = await leerEntrada("Ingrese su nueva contraseña: ");
-      await register(username2, password2);
-      await menu(); // Regresar al menú principal
+      const newUsername = await leerEntrada("Ingrese su nuevo nombre de usuario: ");
+      const newPassword = await leerEntrada("Ingrese su nueva contraseña: ");
+
+      register(newUsername, newPassword);
       break;
+
     case "3":
       const username3 = await leerEntrada("Ingrese su nombre de usuario: ");
       const password3 = await leerEntrada("Ingrese su contraseña: ");
@@ -258,8 +275,12 @@ async function menuCliente(cliente) {
       await menuCliente(cliente);
       break;
     case "2":
-      await cliente.desconectar();
-      console.log("¡Sesión cerrada correctamente!");
+      if(cliente.isConnected()){
+        await cliente.desconectar();
+        console.log("¡Sesión cerrada correctamente!");
+      }else{
+        console.log("No hay sesión activa para cerrar.");
+      }
       await menu();
       break;
     case "3":
