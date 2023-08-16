@@ -1,6 +1,5 @@
 const { client, xml } = require("@xmpp/client");
 const readline = require("readline");
-const debug = require("@xmpp/debug");
 const net = require('net');
 const cliente = new net.Socket();
 
@@ -40,7 +39,9 @@ class ClienteXMPP {
     this.service = service;
     this.domain = domain;
     this.xmpp = null;
+    this.chatHistory = {};
   }
+  
   async deleteAccount() {
     return new Promise((resolve, reject) => {
       if (!this.xmpp) {
@@ -89,9 +90,33 @@ class ClienteXMPP {
   
     this.xmpp.on("online", async () => {
       console.log("Conexión exitosa.");
-      await this.xmpp.send(xml("presence"));
+      await this.xmpp.send(xml("presence",{type: "online"}));
+      this.xmpp.on("stanza", (stanza) => {
+        if (stanza.is("message") && stanza.attrs.type == "chat"){
+          const body = stanza.getChild("body");
+          const from =  stanza.attrs.from;
+          if (body){
+            const messageText = body.children[0];
+            const sender = from.split('@')[0];
+            console.log(`\nReceived message from ${sender}:`, messageText);
+          }
+        }
+        else if (stanza.is('presence') && stanza.attrs.type === 'subscribe') {
+          const from = stanza.attrs.from;
+          console.log("\nSolicitud de amistad recibida de:", from.split('@')[0]);
+          console.log("Mensaje enviado:", stanza.getChildText("status"));
+        } 
+
+
+      })
+
+
+
+
+
       // Realiza otras acciones después de establecer la conexión.
     });
+    
   
     await this.xmpp.start().catch((err) => {
       if (err.condition !== 'not-authorized') { // Evita imprimir el error 'not-authorized'
@@ -116,6 +141,20 @@ class ClienteXMPP {
 
     await this.xmpp.send(message);
   }
+  async enviarMensajeGrupo(destinatario, mensaje) {
+    if (!this.xmpp) {
+      throw new Error("El cliente XMPP no está conectado.");
+    }
+    const message = xml(
+      "message",
+      { type: "groupchat", to: destinatario },
+      xml("body", {}, mensaje)
+    );
+
+    await this.xmpp.send(message);
+  }
+ 
+  
   async obtenerContactos() {
     if (!this.xmpp) {
       throw new Error("El cliente XMPP no está conectado. Primero llama al método 'conectar()'.");
@@ -134,12 +173,19 @@ class ClienteXMPP {
         stanza.getChildren("query")[0].getChildren("item").forEach((item) => {
           const jid = item.attrs.jid;
           const name = item.attrs.name || jid.split("@")[0];
-          contacts[jid] = { name, presence: "offline" };
+          const subscription = item.attrs.subscription;
+  
+          contacts[jid] = { name, presence: "offline", subscription: subscription || "none" };
         });
       } else if (stanza.is("presence")) {
         const from = stanza.attrs.from;
         if (from in contacts) {
           contacts[from].presence = stanza.attrs.type || "online";
+        }
+      } else if (stanza.is("presence") && stanza.attrs.type === "subscribe") {
+        const from = stanza.attrs.from;
+        if (from in contacts) {
+          contacts[from].subscription = "pending";
         }
       }
     });
@@ -149,35 +195,69 @@ class ClienteXMPP {
     return new Promise((resolve) => {
       this.xmpp.on("stanza", (stanza) => {
         if (stanza.is("iq") && stanza.attrs.id === "roster") {
+
           resolve(Object.values(contacts));
         }
       });
     });
   }
-  
-  
-  
-  
-  
 
 
-  async agregarContacto(contacto) {
-    if (!this.xmpp) {
-      throw new Error("El cliente XMPP no está conectado. Primero llama al método 'conectar()'.");
-    }
+  
+  
+  async addContacts(jid) {
 
-    const iq = xml(
-      "iq",
-      { type: "set" },
-      xml(
-        "query",
-        { xmlns: "jabber:iq:roster" },
-        xml("item", { jid: `${contacto}@${this.domain}`, name: contacto })
-      )
-    );
-
-    await this.xmpp.send(iq);
+    const presence = xml("presence", {type: "subscribe", to: jid + "@alumchat.xyz"});
+    this.xmpp.send(presence).then(() => {
+        console.log("\nContacto agregado correctamente.");
+    }).catch((err) => {
+        console.error("Error when adding contact: ", err);
+    });
+  };
+  async inviteToGroupChat(roomName, userI) {
+    const roomId = roomName + "@conference.alumchat.xyz";
+    const inviteRequest = xml("message", {to: roomId}, xml("x", {xmlns: "http://jabber.org/protocol/muc#user"}, xml("invite", {to: userI + "@alumchat.xyz"}, xml("reason", {}, "Join the group!"))));
+    await this.xmpp.send(inviteRequest);
+    console.log("Invitation sent to: ", userI);
   }
+  async createGC(roomName) {
+    const roomId = roomName + "@conference.alumchat.xyz";
+
+    // If group chat is not found in the server, it will be created
+    await this.xmpp.send(xml("presence", {to: roomId + "/" + this.username}));
+    console.log("Joined group chat succesfully");
+
+    
+    this.xmpp.on('stanza', async (stanza) => {
+        if (stanza.is('message') && stanza.getChild('body')) {
+
+          if (stanza.attrs.type === "groupchat") {
+            const from = stanza.attrs.from;
+            const body = stanza.getChildText("body");
+
+            if (from && body) {
+              console.log(`${from}: ${body}`);
+            }
+          }
+        }
+      });
+
+  }
+  async unierseGrupo(roomName) {
+    const roomId = roomName + "@conference.alumchat.xyz";
+    await this.xmpp.send(xml("presence", {to: roomId + "/" + this.username}));
+    console.log("Se unio al grupo exitosamente");
+    let mensaje;
+      while (mensaje !== "salir#") {
+        mensaje = await leerEntrada("Escribe un mensaje (escribe 'salir#' para salir): ");
+        if (mensaje !== "salir#") {
+          await this.enviarMensajeGrupo(roomId, mensaje);
+        }
+      }
+    await menuCliente(this);
+    
+  }
+  
 
   // Add a method to disconnect from XMPP
   async desconectar() {
@@ -188,6 +268,7 @@ class ClienteXMPP {
     }
   }
 }
+
 
 // Function to read user input from the command line
 function leerEntrada(prompt) {
@@ -241,11 +322,6 @@ async function menu() {
       break;
 
     case "3":
-      const username3 = await leerEntrada("Ingrese su nombre de usuario: ");
-      const password3 = await leerEntrada("Ingrese su contraseña: ");
-      await deleteAccount(username3, password3);
-      await menu(); // Regresar al menú principal
-    case "4":
       process.exit(0); // Salir de la aplicación con éxito
       break;
     default:
@@ -255,26 +331,113 @@ async function menu() {
   }
 }
 
+
 // Menu function after successful login
 async function menuCliente(cliente) {
-  console.log("1. Enviar mensaje");
-  console.log("2. Cerrar sesión");
-  console.log("3. Agregar contacto");
-  console.log("4. Obtener contactos");
-  console.log("5. Eliminar cuenta");
-  console.log("6. Salir");
+  console.log("1. Comunicacion 1 a 1");
+  console.log("2. Agregar contacto");
+  console.log("3. Mostrar detalles de contacto");
+  console.log("4. Mostrar todos los contactos y su estado");
+  console.log("5. Converssaciones grupales");
+  console.log("6. Definir mensaje de precesencia");
+  console.log("7. Eliminar cuenta");
+  console.log("8. Cerrar sesión");
+  console.log("9. Salir de la aplicación");
 
-  const opcion = await leerEntrada("Seleccione una opción (1, 2 o 3): ");
+  const opcion = await leerEntrada("Seleccione una opción: ");
 
   switch (opcion) {
     case "1":
       const destinatario = await leerEntrada("Ingrese el nombre de usuario del destinatario: ");
-      const mensaje = await leerEntrada("Ingrese el mensaje: ");
-      await cliente.enviarMensaje(destinatario, mensaje);
-      console.log("Mensaje enviado correctamente.");
+
+
+      // Continuously listen for new messages until the user types "salir#"
+      let mensaje;
+      while (mensaje !== "salir#") {
+        mensaje = await leerEntrada("Escribe un mensaje (escribe 'salir#' para salir): ");
+        if (mensaje !== "salir#") {
+          await cliente.enviarMensaje(destinatario, mensaje);
+        }
+      }
       await menuCliente(cliente);
       break;
     case "2":
+      const nuevoContacto = await leerEntrada("Ingrese el nombre de usuario del nuevo contacto: ");
+      await cliente.addContacts(nuevoContacto);
+      await menuCliente(cliente);
+      break;
+    case "3":
+      await menuCliente(cliente);
+      break;
+    case "4":
+      const contactos = await cliente.obtenerContactos();
+      console.log("Tus contactos son:");
+      contactos.forEach((contacto) => {
+        console.log(`${contacto.name}: Presence: ${contacto.presence}, Subscription: ${contacto.subscription}`);
+      });
+      await menuCliente(cliente);
+      break;
+    case "5":
+      console.log("Converssaciones grupales");
+
+      console.log("1. Crear chat grupal");
+      console.log("2. Unirse a chat grupal");
+      const opcion2 = await leerEntrada("Seleccione una opción: ");
+
+      switch (opcion2) {
+        case "1":
+          console.log("Crear chat grupal");
+          const nombregrupo = await leerEntrada("Ingrese el nombre del grupo: ");
+          await cliente.createGC(nombregrupo);
+          console.log("Grupo creado con exito");
+
+          console.log("\n1. Invitar a un usuario");
+          console.log("2. Enviar mensaje al grupo");
+          console.log("3. Salir");
+          const opcion3 = await leerEntrada("Seleccione una opción: ");
+          switch (opcion3) {
+            case "1":
+              const invitado = await leerEntrada("Ingrese el nombre de usuario a invitar: ");
+              await cliente.inviteToGroupChat(nombregrupo, invitado);
+              await cliente.enviarMensajeGrupo(nombregrupo, "¡Bienvenido al grupo!")
+              await menuCliente(cliente);
+              break;
+            case "2":
+              let mensaje;
+              while (mensaje !== "salir#") {
+                mensaje = await leerEntrada("Escribe un mensaje (escribe 'salir#' para salir): ");
+                if (mensaje !== "salir#") {
+                  await cliente.enviarMensajeGrupo(nombregrupo, mensaje);
+                }
+
+              }
+              await menuCliente(cliente);
+              break;
+
+          }
+          await menuCliente(cliente);
+          break
+
+        case "2":
+          console.log("Unirse a chat grupal");
+          const nombregrupo2 = await leerEntrada("Ingrese el nombre del grupo: ");
+          await cliente.unierseGrupo(nombregrupo2);
+          
+          
+        default:
+          console.log("Opción inválida. Intente nuevamente.");
+          await menuCliente(cliente);
+          break;
+      }
+
+      break;
+    case "6":
+      console.log("Cerrar sesión");
+    case "7":
+      console.log("Eliminando cuenta");
+      await cliente.deleteAccount();
+      await menu();
+    case "8":
       if(cliente.isConnected()){
         await cliente.desconectar();
         console.log("¡Sesión cerrada correctamente!");
@@ -282,20 +445,8 @@ async function menuCliente(cliente) {
         console.log("No hay sesión activa para cerrar.");
       }
       await menu();
-      break;
-    case "3":
-      
-    case "4":
-      const contactos = await cliente.obtenerContactos();
-      console.log("Tus contactos son:");
-      contactos.forEach((contacto) => console.log(`${contacto.name}: ${contacto.presence}`));
-      await menuCliente(cliente);
-      break;
-    case "5":
-      await cliente.deleteAccount();
-      await menu(); // Salir de la aplicación después de eliminar la cuenta
       break;    
-    case "6":
+    case "9":
       process.exit(0); // Salir de la aplicación con éxito
       break;
     default:
