@@ -26,6 +26,10 @@ This project is a chat client developed in JavaScript using the @xmpp/client lib
 
 ## Usage
 
+Clone the Repository to your local machine via
+```
+git clone https://github.com/IPablo271/Proyecto-redes.git
+```
 Please ensure that you have Node.js installed by using the following command:
 ```
 node -v
@@ -39,3 +43,36 @@ Run the project via
 ```
 node client.js
 ```
+
+After running node client.js, you will encounter the menus based on your interactions.
+
+```
+Bienvenido al cliente XMPP!
+1. Iniciar sesión
+2. Crear cuenta
+3. Salir
+Seleccione una opción (1, 2 o 3): 1
+
+```
+```
+Conexión exitosa.
+1. Comunicacion 1 a 1
+2. Agregar contacto
+3. Mostrar detalles de contacto
+4. Mostrar todos los contactos y su estado
+5. Converssaciones grupales
+6. Definir mensaje de precesencia
+7. Eliminar cuenta
+8. Cerrar sesión
+9. Salir de la aplicación
+Seleccione una opción:
+```
+
+## Author
+👤 Pablo Gonzalez
+
+If you have any questions or would like to get in touch, feel free to send me an email at:
+
+Email: pablogonzalez2716@gmail.com
+
+I'll be more than happy to assist you with any inquiries you may have about the XMPP Client Application.
