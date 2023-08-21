@@ -39,7 +39,8 @@ class ClienteXMPP {
     this.service = service;
     this.domain = domain;
     this.xmpp = null;
-    this.chatHistory = {};
+    this.receivedSubscriptions = [];
+    this.recivedSuscriptionsGroup = [];
   }
   
   async deleteAccount() {
@@ -98,14 +99,25 @@ class ClienteXMPP {
           if (body){
             const messageText = body.children[0];
             const sender = from.split('@')[0];
-            console.log(`\nReceived message from ${sender}:`, messageText);
+            console.log(`\nMensaje recibido de ${sender}:`, messageText);
           }
         }
         else if (stanza.is('presence') && stanza.attrs.type === 'subscribe') {
           const from = stanza.attrs.from;
+          this.receivedSubscriptions.push(from);
           console.log("\nSolicitud de amistad recibida de:", from.split('@')[0]);
           console.log("Mensaje enviado:", stanza.getChildText("status"));
-        } 
+
+        } else if(stanza.is('message') && stanza.getChild('body')) {
+          if (stanza.attrs.type === "groupchat") {
+            const from = stanza.attrs.from;
+            const body = stanza.getChildText("body");
+
+            if (from && body) {
+              console.log(`Mensaje de grupo: ${from}: ${body}`);
+            }
+          }
+        }
 
 
       })
@@ -202,7 +214,49 @@ class ClienteXMPP {
     });
   }
 
-
+  async getContactDetails(username) {
+    if (!this.xmpp) {
+      throw new Error("El cliente XMPP no está conectado. Primero llama al método 'conectar()'.");
+    }
+  
+    const iq = xml(
+      "iq",
+      { type: "get" },
+      xml("query", { xmlns: "jabber:iq:roster" }, xml("item", { jid: `${username}@alumchat.xyz` }))
+    );
+  
+    const contactDetails = {};
+  
+    this.xmpp.on("stanza", (stanza) => {
+      if (stanza.is("iq") && stanza.attrs.type === "result") {
+        const query = stanza.getChild("query", "jabber:iq:roster");
+        if (query) {
+          const item = query.getChild("item");
+          if (item) {
+            const name = item.attrs.name || username;
+            const subscription = item.attrs.subscription || "none";
+  
+            contactDetails[name] = { presence: "offline", subscription };
+          }
+        }
+      } else if (stanza.is("presence")) {
+        const from = stanza.attrs.from;
+        if (from in contactDetails) {
+          contactDetails[from].presence = stanza.attrs.type || "online";
+        }
+      }
+    });
+  
+    await this.xmpp.send(iq);
+  
+    return new Promise((resolve) => {
+      this.xmpp.on("stanza", (stanza) => {
+        if (stanza.is("iq") && stanza.attrs.type === "result") {
+          resolve(contactDetails);
+        }
+      });
+    });
+  }
   
   
   async addContacts(jid) {
@@ -227,20 +281,14 @@ class ClienteXMPP {
     await this.xmpp.send(xml("presence", {to: roomId + "/" + this.username}));
     console.log("Joined group chat succesfully");
 
-    
-    this.xmpp.on('stanza', async (stanza) => {
-        if (stanza.is('message') && stanza.getChild('body')) {
-
-          if (stanza.attrs.type === "groupchat") {
-            const from = stanza.attrs.from;
-            const body = stanza.getChildText("body");
-
-            if (from && body) {
-              console.log(`${from}: ${body}`);
-            }
-          }
-        }
-      });
+  }
+  async aceptarSolicitud(uusario){
+    const presence = xml("presence", {type: "subscribed", to: uusario + "@alumchat.xyz"});
+    this.xmpp.send(presence).then(() => {
+        console.log("\nSolicitud aceptada correctamente.");
+    }).catch((err) => {
+        console.error("Error when adding contact: ", err);
+    });
 
   }
   async unierseGrupo(roomName) {
@@ -256,6 +304,11 @@ class ClienteXMPP {
       }
     await menuCliente(this);
     
+  }
+  async setPresencia(estado,mensaje) {
+    const presence = xml("presence", {}, xml('show', {}, estado), xml('status', {}, mensaje));
+    await this.xmpp.send(presence);
+    console.log("Estado actualizado correctamente")
   }
   
 
@@ -362,11 +415,60 @@ async function menuCliente(cliente) {
       await menuCliente(cliente);
       break;
     case "2":
-      const nuevoContacto = await leerEntrada("Ingrese el nombre de usuario del nuevo contacto: ");
-      await cliente.addContacts(nuevoContacto);
-      await menuCliente(cliente);
-      break;
+      console.log("1. Agregar contacto");
+      console.log("2. Ver solicitudes de amistad");
+      console.log("3. Salir");
+      const opcioncontatcto = await leerEntrada("Seleccione una opción: ");
+      switch (opcioncontatcto) {
+        case "1":
+          const nuevoContacto = await leerEntrada("Ingrese el nombre de usuario del nuevo contacto: ");
+          await cliente.addContacts(nuevoContacto);
+          await menuCliente(cliente);
+          break;
+        case "2":
+          console.log("Solicitudes de amistad");
+          if (cliente.receivedSubscriptions.length === 0) {
+            console.log("No hay solicitudes de amistad pendientes")
+            await menuCliente(cliente);
+            break;
+
+          }else{
+            cliente.receivedSubscriptions.forEach((subscription) => {
+              console.log("Solicitud de amistad del usuario: "+ subscription.split('@')[0]);
+            });
+            console.log("Desea agregar alguno de los usuarios (si/no): ")
+            const opcionAgregar = await leerEntrada("Seleccione una opción: ");
+            if (opcionAgregar === "si") {
+              const nuevoContacto = await leerEntrada("Ingrese el nombre de usuario del nuevo contacto: ");   
+                await cliente.aceptarSolicitud(nuevoContacto);
+                await menuCliente(cliente);
+
+            }
+            else{
+              await menuCliente(cliente);
+              break;
+            }
+            
+          }
+          
+
+        case "3":
+          await menuCliente(cliente);
+          break;
+      }
+      
+      
     case "3":
+      const contactUsername = await leerEntrada("Ingrese el nombre de usuario del contacto: ");
+      const contactDetails = await cliente.getContactDetails(contactUsername);
+      if (Object.keys(contactDetails).length === 0) {
+        console.log("No se encontraron detalles para ese contacto.");
+      } else {
+        console.log("Detalles del contacto:");
+        Object.entries(contactDetails).forEach(([name, details]) => {
+          console.log(`Nombre: ${name}, Presencia: ${details.presence}, Suscripción: ${details.subscription}`);
+        });
+      }
       await menuCliente(cliente);
       break;
     case "4":
@@ -397,11 +499,22 @@ async function menuCliente(cliente) {
           const opcion3 = await leerEntrada("Seleccione una opción: ");
           switch (opcion3) {
             case "1":
+              
               const invitado = await leerEntrada("Ingrese el nombre de usuario a invitar: ");
               await cliente.inviteToGroupChat(nombregrupo, invitado);
               await cliente.enviarMensajeGrupo(nombregrupo, "¡Bienvenido al grupo!")
+              let mensaje_agregar
+              while (mensaje_agregar !== "no") {
+                mensaje_agregar = await leerEntrada("¿Desea agregar otro usuario? (si/no): ");
+                if (mensaje_agregar === "si") {
+                  const invitado = await leerEntrada("Ingrese el nombre de usuario a invitar: ");
+                  await cliente.inviteToGroupChat(nombregrupo, invitado);
+                }
+
+              }
               await menuCliente(cliente);
               break;
+
             case "2":
               let mensaje;
               while (mensaje !== "salir#") {
@@ -413,6 +526,9 @@ async function menuCliente(cliente) {
               }
               await menuCliente(cliente);
               break;
+            case "3":
+              await menuCliente(cliente);
+              break
 
           }
           await menuCliente(cliente);
@@ -432,7 +548,11 @@ async function menuCliente(cliente) {
 
       break;
     case "6":
-      console.log("Cerrar sesión");
+      const estado = await leerEntrada("Ingrese el estado: ");
+      const mensajepres = await leerEntrada("Ingrese el mensaje: ");
+      await cliente.setPresencia(estado,mensajepres);
+      await menuCliente(cliente);
+      break;
     case "7":
       console.log("Eliminando cuenta");
       await cliente.deleteAccount();
@@ -448,7 +568,6 @@ async function menuCliente(cliente) {
       break;    
     case "9":
       process.exit(0); // Salir de la aplicación con éxito
-      break;
     default:
       console.log("Opción inválida. Intente nuevamente.");
       await menuCliente(cliente);
