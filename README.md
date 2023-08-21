@@ -52,7 +52,6 @@ Bienvenido al cliente XMPP!
 2. Crear cuenta
 3. Salir
 Seleccione una opción (1, 2 o 3): 1
-
 ```
 ```
 Conexión exitosa.
