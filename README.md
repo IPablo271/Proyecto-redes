@@ -25,12 +25,17 @@ This project is a chat client developed in JavaScript using the @xmpp/client lib
 - net ^1.0.2
 
 ## Usage
-First in the command line, inside the directory, install the dependencies via
 
+Please ensure that you have Node.js installed by using the following command:
+```
+node -v
+```
+In the command line, inside the directory, install the dependencies via
 ```
 npm i
 ```
 Run the project via
+
 ```
 node client.js
 ```
