@@ -23,6 +23,8 @@ This project is a chat client developed in JavaScript using the @xmpp/client lib
 - @xmpp/client ^0.13.1
 - @xmpp/debug ^0.13.0
 - net ^1.0.2
+- fs ^0.0.1
+- path ^0.12.7
 
 ## Usage
 

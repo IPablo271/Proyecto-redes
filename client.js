@@ -14,6 +14,8 @@ const { client, xml } = require("@xmpp/client");
 const readline = require("readline");
 const net = require('net');
 const cliente = new net.Socket();
+const fs = require("fs");
+const path = require('path');
 // Deshabilitar la validación de certificados SSL
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
@@ -109,43 +111,69 @@ class ClienteXMPP {
    * @returns - una promesa que se resuelve cuando se establece la conexión.
    */
   async conectar() {
+    // Crear un nuevo cliente XMPP
     this.xmpp = client({
       service: this.service,
       domain: this.domain,
       username: this.username,
       password: this.password,
     });
-  
+    // Manejo de errores
     this.xmpp.on("error", (err) => {
       if (err.condition !== 'not-authorized') { // Evita imprimir el error 'not-authorized'
         console.error("Error en la conexión:", err);
       }
     });
-  
+    // Manejo de conexión exitosa
     this.xmpp.on("online", async () => {
       console.log("Conexión exitosa.");
       await this.xmpp.send(xml("presence",{type: "online"}));
-      this.xmpp.on("stanza", (stanza) => {
+      this.xmpp.on("stanza", async (stanza) => {
+        // Maneejo de notificaciones
         if (stanza.is("message") && stanza.attrs.type == "chat"){
+          // Manejo de mensajes
           const body = stanza.getChild("body");
           const from =  stanza.attrs.from;
           if (body){
+            // Si contiene un body
+            // Se extrae el mensaje y el usuario que lo envia
             const messageText = body.children[0];
             const sender = from.split('@')[0];
-            console.log(`\nMensaje recibido de ${sender}:`, messageText);
+            // Se verifica si el mensaje es un archivo
+            if(stanza.getChildText("filename")){
+              // Si es un archivo se extrae el nombre del archivo, el contenido y el path donde se guardara
+              const fileName = stanza.getChildText("filename");
+              const fileData = messageText;
+              const saveDir = './recived_files';
+              const savePath = path.join(saveDir, fileName);
+              // Se guarda el archivo en la carpeta recived_files
+              await this.saveBase64ToFile(fileData, savePath);
+              console.log(`\nArchivo recibido de ${sender}:`, fileName);
+            }else{
+              // Si no es un archivo se imprime el mensaje que envia el usuario
+              console.log(`\nMensaje recibido de ${sender}:`, messageText);
+            }
+            
+            
           }
         }
+        // Manejo de solicitudes de amistad
         else if (stanza.is('presence') && stanza.attrs.type === 'subscribe') {
+          // Se extrae el usuario que envia la solicitud
           const from = stanza.attrs.from;
+          // Se agrega a la lista de solicitudes de amistad
           this.receivedSubscriptions.push(from);
+          // Se imprime el usuario que envia la solicitud
           console.log("\nSolicitud de amistad recibida de:", from.split('@')[0]);
           console.log("Mensaje enviado:", stanza.getChildText("status"));
 
         } else if(stanza.is('message') && stanza.getChild('body')) {
+          // Manejo de mensajes grupales
           if (stanza.attrs.type === "groupchat") {
+            // Se extrae el usuario que envia el mensaje y el mensaje
             const from = stanza.attrs.from;
             const body = stanza.getChildText("body");
-
+            // Se imprime el mensaje
             if (from && body) {
               console.log(`Mensaje de grupo: ${from}: ${body}`);
             }
@@ -154,9 +182,8 @@ class ClienteXMPP {
 
 
       })
-    });
-    
-  
+    }); 
+    // Iniciar la conexión
     await this.xmpp.start().catch((err) => {
       if (err.condition !== 'not-authorized') { // Evita imprimir el error 'not-authorized'
         console.error(err);
@@ -404,6 +431,46 @@ class ClienteXMPP {
       console.log("Desconectado del servidor XMPP.");
     }
   }
+  /**
+   * Funcion para enviar archivos a cualquier usuario
+   * @param {*} destinatario 
+   * @param {*} filePath 
+   */
+  async sendFile(destinatario, filePath) {
+    if (!this.xmpp) {
+      throw new Error("El cliente XMPP no está conectado. Primero llama al método 'conectar()'.");
+    }
+
+    try{
+      const file = fs.readFileSync(filePath);
+      const file64 = file.toString('base64');
+      const fileName = path.basename(filePath); // Obtenemos el nombre del archivo
+
+      // console.log(fileName)
+      // console.log(file64)
+
+      const message = xml('message', { to: destinatario, type: 'chat' },
+        xml('body', {}, file64), // Mensaje con el nombre del archivo
+        xml('filename', {}, fileName)
+      );
+
+      // Envía el mensaje al servidor XMPP
+      await this.xmpp.send(message);
+    }catch(error){
+      console.error("No se pudo enviar el archivo");
+    }
+    
+  }
+  /**
+   * Funcion que guarda el archivo en la seccion de recived_files
+   * @param {*} base64Data 
+   * @param {*} filePath 
+   */
+  async saveBase64ToFile(base64Data, filePath) {
+    const buffer = Buffer.from(base64Data, 'base64');
+    await fs.writeFileSync(filePath, buffer);
+  }
+  
 }
 
 
@@ -530,10 +597,18 @@ async function menuCliente(cliente) {
       // Mientras el usuario no escriba 'salir#', seguir enviando mensajes
       while (mensaje !== "salir#") {
         // Leer el mensaje del usuario
-        mensaje = await leerEntrada("Escribe un mensaje (escribe 'salir#' para salir): ");
+        mensaje = await leerEntrada("Escribe un mensaje (escribe 'salir#' para salir) o (escribe 'archivo#' para enviar un archivo) : ");
         if (mensaje !== "salir#") {
-          // Enviar el mensaje al destinatario
-          await cliente.enviarMensaje(destinatario, mensaje);
+          if (mensaje === "archivo#") {
+            // Leer el path del archivo
+            const filePath = await leerEntrada("Ingrese el path del archivo: ");
+            // Enviar el archivo al destinatario
+            await cliente.sendFile(destinatario, filePath);
+
+          }else{
+            // Enviar el mensaje al destinatario
+            await cliente.enviarMensaje(destinatario, mensaje);
+          }  
         }
       }
       // Regresar al menu del cliente
