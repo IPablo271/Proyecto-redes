@@ -173,10 +173,20 @@ class ClienteXMPP {
             // Se extrae el usuario que envia el mensaje y el mensaje
             const from = stanza.attrs.from;
             const body = stanza.getChildText("body");
+
             // Se imprime el mensaje
             if (from && body) {
-              console.log(`Mensaje de grupo: ${from}: ${body}`);
+              console.log(`\nMensaje de grupo: ${from.split('@')[0]}: ${body}`);
             }
+          }
+          // Manejo de invitaciones a grupos
+        }else if(stanza.is("message") && stanza.attrs.from.includes('@conference.alumchat.xyz')){
+          // Se extrae el usuario que envia la invitacion
+          const from = stanza.attrs.from
+          const to = stanza.attrs.to
+          // Se imprime el usuario que envia la invitacion
+          if (!to.includes('/')) {
+            console.log("\nInvitacion de grupo: ", from.split('@')[0])
           }
         }
 
